@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crystal Merge</title>
+<style>
+  :root {
+    --bg: #0e0b1a;
+    --panel: #1a1530;
+    --cell-bg: #241d40;
+    --text: #e8e2ff;
+    --muted: #8f86b8;
+    --board: min(92vw, 420px);
+    --pad: 10px;
+    --gap: 10px;
+    --cell: calc((var(--board) - 2 * var(--pad) - 3 * var(--gap)) / 4);
+    --slide: 120ms;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% 0%, #2a1f55 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: Georgia, "Times New Roman", serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 2rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #c8b6ff, #7fe3ff, #ffd1f0);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 0.9rem; font-style: italic; }
+  .hud {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+    width: var(--board);
+  }
+  .stat {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid #332a5c;
+    border-radius: 10px;
+    padding: 8px 12px;
+    text-align: center;
+  }
+  .stat .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .stat .value { font-size: 1.3rem; font-weight: bold; }
+  button {
+    background: linear-gradient(135deg, #6a4dff, #b388ff);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(120, 80, 255, 0.4);
+  }
+  button:hover { filter: brightness(1.1); }
+
+  /* Attunement bar */
+  .attune {
+    width: var(--board);
+    margin-bottom: 14px;
+    background: var(--panel);
+    border: 1px solid #332a5c;
+    border-radius: 10px;
+    padding: 8px 12px 10px;
+  }
+  .attune .row { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+  .attune .row .status { text-transform: none; letter-spacing: 0; font-style: italic; }
+  .attune .track {
+    height: 12px;
+    background: #120e22;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 4px rgba(0,0,0,0.6);
+  }
+  .attune .fill {
+    height: 100%;
+    width: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #7fe3ff, #b388ff, #ff7ad9);
+    transition: width 120ms linear, filter 300ms ease;
+    box-shadow: 0 0 10px rgba(179,136,255,0.6);
+  }
+  .attune.low .fill { background: linear-gradient(90deg, #ffb347, #ff5e62); box-shadow: 0 0 12px rgba(255,94,98,0.7); animation: flicker 0.9s infinite; }
+  .attune.critical .fill { background: #ff2d4d; animation: flicker 0.4s infinite; }
+  @keyframes flicker { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.6); } }
+
+  .board {
+    position: relative;
+    width: var(--board);
+    height: var(--board);
+    background: var(--panel);
+    border-radius: 14px;
+    border: 1px solid #332a5c;
+    box-shadow: 0 0 40px rgba(120, 80, 255, 0.15), inset 0 0 30px rgba(0,0,0,0.4);
+    overflow: hidden;
+    transition: box-shadow 300ms;
+  }
+  .board.low { box-shadow: 0 0 40px rgba(255, 94, 98, 0.35), inset 0 0 30px rgba(0,0,0,0.4); }
+  .cell, .tile {
+    position: absolute;
+    top: var(--pad);
+    left: var(--pad);
+    width: var(--cell);
+    height: var(--cell);
+    transform: translate(
+      calc(var(--c) * (var(--cell) + var(--gap))),
+      calc(var(--r) * (var(--cell) + var(--gap)))
+    );
+  }
+  .cell { background: var(--cell-bg); border-radius: 10px; }
+  .tile {
+    transition: transform var(--slide) ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+  }
+  .tile.merging { z-index: 0; }
+  .crystal {
+    width: 92%;
+    height: 92%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    font-weight: bold;
+    position: relative;
+    color: #fff;
+  }
+  .crystal::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%, rgba(255,255,255,0.15) 100%);
+    pointer-events: none;
+  }
+  .crystal .tier {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--cell) * 0.32);
+    line-height: 1;
+    /* Georgia uses old-style (descending) numerals; use lining figures so digits sit on the centre */
+    font-family: "Trebuchet MS", "Segoe UI", Helvetica, Arial, sans-serif;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+  .crystal .facets {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .crystal .facets path, .crystal .facets line {
+    fill: none;
+    stroke: rgba(255,255,255,0.55);
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .crystal.darktext .facets path, .crystal.darktext .facets line { stroke: rgba(42,32,64,0.45); }
+  .crystal.pop { animation: pop 0.18s ease-out; }
+  .crystal.merged { animation: merge 0.25s ease-out; }
+  .crystal.resonant { animation: resonate 0.45s ease-out; }
+  @keyframes pop { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes merge { 0% { transform: scale(1); } 50% { transform: scale(1.18); filter: brightness(1.6); } 100% { transform: scale(1); } }
+  @keyframes resonate {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.3) rotate(-4deg); filter: brightness(2.2) saturate(1.5); }
+    60% { transform: scale(1.15) rotate(3deg); filter: brightness(1.6); }
+    100% { transform: scale(1) rotate(0); }
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(14, 11, 26, 0.88);
+    border-radius: 14px;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+    padding: 20px;
+    z-index: 5;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 { margin: 0; font-size: 1.6rem; }
+  .overlay p { margin: 0; color: var(--muted); }
+  .help { margin-top: 14px; width: var(--board); font-size: 0.85rem; color: var(--muted); text-align: center; line-height: 1.6; }
+
+  .channel {
+    margin-top: 14px;
+    width: var(--board);
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 14px;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    transition: transform 80ms, box-shadow 80ms;
+  }
+  .channel .glyph { font-size: 1.5rem; letter-spacing: 0.2em; }
+  .channel.active {
+    transform: scale(0.97);
+    background: linear-gradient(135deg, #ff7ad9, #7fe3ff);
+    box-shadow: 0 0 24px rgba(127, 227, 255, 0.7);
+    animation: channelPulse 0.6s infinite;
+  }
+  @keyframes channelPulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+</style>
+</head>
+<body>
+
+<h1>Crystal Merge</h1>
+<p class="sub">Slide the shards together. Open the Amaranthine Eye.</p>
+
+<div class="hud">
+  <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
+  <div class="stat"><div class="label">Best</div><div class="value" id="best">0</div></div>
+  <button id="newGame">New Game</button>
+</div>
+
+<div class="attune" id="attune">
+  <div class="row"><span>Attunement</span><span class="status" id="attuneStatus">Steady</span></div>
+  <div class="track"><div class="fill" id="attuneFill"></div></div>
+</div>
+
+<div class="board" id="board">
+  <div class="overlay" id="overlay">
+    <h2 id="overlayTitle"></h2>
+    <p id="overlayText"></p>
+    <button id="overlayBtn">Play Again</button>
+  </div>
+</div>
+
+<button class="channel" id="channelBtn" aria-label="Hold to channel: alternates left and down">
+  <span class="glyph">&#8592; &#8595;</span>
+  <span class="lbl">Hold to Channel</span>
+</button>
+
+<div class="help">
+  Swipe to slide the crystals. Matching crystals merge into the next tier; three in a line resonate into a tier +2.<br>
+  Every merge adds +2 attunement (+4 for a resonance); it fades 1 per second. Reach 500 to open the Eye.
+</div>
+
+<script>
+(() => {
+  const SIZE = 4;
+  const WIN_TIER = 11;
+  const SLIDE_MS = 120;
+
+  // ---- Attunement tuning (DM knobs), all in seconds ----
+  const ATTUNE_START = 0;    // attunement at the start
+  const ATTUNE_MAX   = 500;  // reach this to win
+  const GAIN_MERGE   = 2;    // per ordinary merge
+  const GAIN_RESON   = 4;    // per resonance (triple) merge
+  const GAIN_TIER    = 0;    // bonus per tier of the resulting crystal
+  const LOW_AT       = 50;   // below this the bar reads as "faltering" (no penalty)
+  const CRITICAL_AT  = 10;
+  const TICK_MS      = 100;  // clock resolution
+
+  const CRYSTALS = [
+    null,
+    { name: "Dust",      color: "#8e8aa3", glow: "#b8b4cc" },
+    { name: "Shard",     color: "#6fa8dc", glow: "#a9d3ff" },
+    { name: "Chip",      color: "#4fc3b0", glow: "#9cf0dd" },
+    { name: "Quartz",    color: "#e2dcc8", glow: "#fff8e6", dark: true },
+    { name: "Amethyst",  color: "#9b59d6", glow: "#d7aaff" },
+    { name: "Citrine",   color: "#f0b429", glow: "#ffe08a" },
+    { name: "Sapphire",  color: "#2f5bd9", glow: "#8aa8ff" },
+    { name: "Emerald",   color: "#1f9e55", glow: "#7ef0a8" },
+    { name: "Ruby",      color: "#d6263f", glow: "#ff8a9a" },
+    { name: "Diamond",   color: "#bde9ff", glow: "#ffffff", dark: true },
+    { name: "Amaranthine Eye", color: "#ff7ad9", glow: "#ffffff" },
+  ];
+
+  const boardEl = document.getElementById("board");
+  const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
+  const overlay = document.getElementById("overlay");
+  const overlayTitle = document.getElementById("overlayTitle");
+  const overlayText = document.getElementById("overlayText");
+  const overlayBtn = document.getElementById("overlayBtn");
+  const attuneEl = document.getElementById("attune");
+  const attuneFill = document.getElementById("attuneFill");
+  const attuneStatus = document.getElementById("attuneStatus");
+
+  let grid, score, best, won, over, attune, animating = false;
+  let ticker = null, started = false;
+
+  function startClock() {
+    if (ticker) return;
+    started = true;
+    ticker = setInterval(() => {
+      if (over) return;
+      attune = Math.max(0, attune - TICK_MS / 1000);
+      updateHud();
+    }, TICK_MS);
+  }
+  function stopClock() { clearInterval(ticker); ticker = null; }
+
+  try { best = parseInt(localStorage.getItem("crystalBest") || "0", 10); } catch (e) { best = 0; }
+
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.style.setProperty("--r", r);
+    cell.style.setProperty("--c", c);
+    boardEl.appendChild(cell);
+  }
+
+  function init() {
+    boardEl.querySelectorAll(".tile").forEach(t => t.remove());
+    grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+    score = 0; won = false; over = false; animating = false; attune = ATTUNE_START;
+    stopClock(); started = false;
+    overlay.classList.remove("show");
+    addRandom(); addRandom();
+    updateHud();
+  }
+
+  function emptyCells() {
+    const out = [];
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (!grid[r][c]) out.push([r, c]);
+    return out;
+  }
+
+  function makeTile(r, c, v) {
+    const el = document.createElement("div");
+    el.className = "tile";
+    const inner = document.createElement("div");
+    inner.className = "crystal pop";
+    el.appendChild(inner);
+    const tile = { r, c, v, el, inner };
+    setPos(tile);
+    paint(tile);
+    boardEl.appendChild(el);
+    return tile;
+  }
+
+  function setPos(t) {
+    t.el.style.setProperty("--r", t.r);
+    t.el.style.setProperty("--c", t.c);
+  }
+
+  // Table-cut facet lines: outer octagon, inner table, and spokes joining them
+  const OUTER = [[30,0],[70,0],[100,30],[100,70],[70,100],[30,100],[0,70],[0,30]];
+  const INNER = OUTER.map(([x, y]) => [50 + (x - 50) * 0.5, 50 + (y - 50) * 0.5]);
+  const poly = pts => "M" + pts.map(p => p.join(",")).join(" L") + " Z";
+  const FACETS_SVG =
+    `<svg class="facets" viewBox="0 0 100 100" preserveAspectRatio="none">` +
+    `<path d="${poly(OUTER)}"/>` +
+    `<path d="${poly(INNER)}"/>` +
+    OUTER.map((o, i) => `<line x1="${o[0]}" y1="${o[1]}" x2="${INNER[i][0]}" y2="${INNER[i][1]}"/>`).join("") +
+    `</svg>`;
+
+  function paint(t) {
+    const cr = CRYSTALS[Math.min(t.v, CRYSTALS.length - 1)];
+    t.inner.style.background = `linear-gradient(160deg, ${cr.glow} 0%, ${cr.color} 45%, ${shade(cr.color, -35)} 100%)`;
+    t.inner.style.color = cr.dark ? "#2a2040" : "#fff";
+    t.inner.classList.toggle("darktext", !!cr.dark);
+    t.inner.innerHTML = FACETS_SVG + `<div class="tier">${t.v}</div>`;
+  }
+
+  function addRandom() {
+    const empties = emptyCells();
+    if (!empties.length) return;
+    const [r, c] = empties[Math.floor(Math.random() * empties.length)];
+    grid[r][c] = makeTile(r, c, Math.random() < 0.9 ? 1 : 2);
+  }
+
+  function lines(dir) {
+    const out = [];
+    for (let i = 0; i < SIZE; i++) {
+      const line = [];
+      for (let j = 0; j < SIZE; j++) {
+        if (dir === 0) line.push([i, j]);
+        if (dir === 2) line.push([i, SIZE - 1 - j]);
+        if (dir === 1) line.push([j, i]);
+        if (dir === 3) line.push([SIZE - 1 - j, i]);
+      }
+      out.push(line);
+    }
+    return out;
+  }
+
+  function move(dir) { // 0=left,1=up,2=right,3=down
+    if (over || animating) return;
+    let moved = false, gained = 0, attuneDelta = 0;
+    const newGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+    const merges = []; // {survivor, victims, newV, resonant}
+
+    for (const line of lines(dir)) {
+      const tiles = line.map(([r, c]) => grid[r][c]).filter(Boolean);
+      let k = 0;
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        const [r, c] = line[k];
+        const pair = i + 1 < tiles.length && tiles[i + 1].v === t.v;
+        const triple = pair && i + 2 < tiles.length && tiles[i + 2].v === t.v;
+
+        if (triple || pair) {
+          const victims = triple ? [tiles[i + 1], tiles[i + 2]] : [tiles[i + 1]];
+          const newV = t.v + (triple ? 2 : 1);
+          moved = true;
+          t.r = r; t.c = c;
+          victims.forEach(v => { v.r = r; v.c = c; });
+          merges.push({ survivor: t, victims, newV, resonant: triple });
+          gained += Math.pow(2, newV);
+          attuneDelta += (triple ? GAIN_RESON : GAIN_MERGE) + newV * GAIN_TIER;
+          newGrid[r][c] = t;
+          i += victims.length;
+        } else {
+          if (t.r !== r || t.c !== c) moved = true;
+          t.r = r; t.c = c;
+          newGrid[r][c] = t;
+        }
+        k++;
+      }
+    }
+
+    if (!moved) return;
+    if (!started) startClock();
+
+    animating = true;
+    grid = newGrid;
+
+    for (const row of grid) for (const t of row) if (t) setPos(t);
+    for (const { victims } of merges) victims.forEach(v => { v.el.classList.add("merging"); setPos(v); });
+
+    setTimeout(() => {
+      for (const { survivor, victims, newV, resonant } of merges) {
+        victims.forEach(v => v.el.remove());
+        survivor.v = newV;
+        paint(survivor);
+        survivor.inner.classList.remove("pop", "merged", "resonant");
+        void survivor.inner.offsetWidth;
+        survivor.inner.classList.add(resonant ? "resonant" : "merged");
+      }
+      score += gained;
+      attune = Math.max(0, Math.min(ATTUNE_MAX, attune + attuneDelta));
+      if (score > best) { best = score; try { localStorage.setItem("crystalBest", best); } catch (e) {} }
+      addRandom();
+      updateHud();
+      animating = false;
+      checkState();
+    }, SLIDE_MS);
+  }
+
+  function canMove() {
+    if (emptyCells().length) return true;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const v = grid[r][c].v;
+      if ((c + 1 < SIZE && grid[r][c + 1].v === v) || (r + 1 < SIZE && grid[r + 1][c].v === v)) return true;
+    }
+    return false;
+  }
+
+  function checkState() {
+    const maxTier = Math.max(...grid.flat().filter(Boolean).map(t => t.v));
+    if (attune >= ATTUNE_MAX) {
+      over = true; won = true; stopClock();
+      showOverlay("Attunement complete!", `The Amaranthine Eye opens, and she holds its gaze. Final score: ${score}`, "Play Again");
+    } else if (!won && maxTier >= WIN_TIER) {
+      won = true;
+      showOverlay("The Amaranthine Eye stirs…", "A milestone, not the end. Keep feeding the attunement.", "Keep Going");
+    } else if (!canMove()) {
+      over = true; stopClock();
+      showOverlay("The cavern goes dark.", `Final score: ${score}`, "Try Again");
+    }
+  }
+
+  function showOverlay(title, text, btn) {
+    overlayTitle.textContent = title;
+    overlayText.textContent = text;
+    overlayBtn.textContent = btn;
+    overlay.classList.add("show");
+  }
+
+  function updateHud() {
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+    attuneFill.style.width = (attune / ATTUNE_MAX * 100) + "%";
+    attuneEl.classList.toggle("low", attune <= LOW_AT && attune > CRITICAL_AT);
+    attuneEl.classList.toggle("critical", attune <= CRITICAL_AT);
+    boardEl.classList.toggle("low", attune <= LOW_AT);
+    const pts = Math.floor(attune);
+    const mood =
+      !started              ? "Make a move to begin" :
+      attune <= CRITICAL_AT ? "The light falters…" :
+      attune <= LOW_AT      ? "Her grip wavers" :
+      attune >= ATTUNE_MAX * 0.75 ? "Resonant" : "Steady";
+    attuneStatus.textContent = started ? `${pts} / ${ATTUNE_MAX} · ${mood}` : mood;
+  }
+
+  function shade(hex, amt) {
+    const n = parseInt(hex.slice(1), 16);
+    const f = v => Math.max(0, Math.min(255, v + amt));
+    return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  }
+
+  const KEYS = { ArrowLeft: 0, a: 0, ArrowUp: 1, w: 1, ArrowRight: 2, d: 2, ArrowDown: 3, s: 3 };
+  document.addEventListener("keydown", e => {
+    const d = KEYS[e.key];
+    if (d !== undefined) { e.preventDefault(); move(d); }
+  });
+
+  let touchStart = null;
+  document.addEventListener("touchstart", e => {
+    if (e.target.closest("button")) { touchStart = null; return; }
+    touchStart = [e.touches[0].clientX, e.touches[0].clientY];
+  }, { passive: true });
+  document.addEventListener("touchend", e => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart[0];
+    const dy = e.changedTouches[0].clientY - touchStart[1];
+    touchStart = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
+    if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 2 : 0); else move(dy > 0 ? 3 : 1);
+  });
+
+  // Hold-to-channel: alternates left / down while pressed
+  const channelBtn = document.getElementById("channelBtn");
+  const CHANNEL_MS = SLIDE_MS + 60;
+  let channelTimer = null, channelDir = 0;
+  function channelStart(e) {
+    e.preventDefault();
+    if (channelTimer) return;
+    channelBtn.classList.add("active");
+    const step = () => { move(channelDir); channelDir = channelDir === 0 ? 3 : 0; };
+    step();
+    channelTimer = setInterval(step, CHANNEL_MS);
+  }
+  function channelStop() {
+    clearInterval(channelTimer); channelTimer = null;
+    channelBtn.classList.remove("active");
+  }
+  channelBtn.addEventListener("pointerdown", channelStart);
+  ["pointerup", "pointercancel", "pointerleave"].forEach(ev => channelBtn.addEventListener(ev, channelStop));
+  channelBtn.addEventListener("contextmenu", e => e.preventDefault());
+  document.addEventListener("visibilitychange", () => { if (document.hidden) channelStop(); });
+
+  document.getElementById("newGame").addEventListener("click", init);
+  overlayBtn.addEventListener("click", () => { if (over) init(); else overlay.classList.remove("show"); });
+
+  init();
+})();
+</script>
+</body>
+</html>
